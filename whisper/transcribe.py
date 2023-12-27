@@ -5,7 +5,7 @@ import warnings
 from typing import TYPE_CHECKING, List, Optional, Tuple, Union
 
 import numpy as np
-import torch
+import mindspore as ms
 import tqdm
 
 from .audio import (
@@ -37,7 +37,7 @@ if TYPE_CHECKING:
 
 def transcribe(
     model: "Whisper",
-    audio: Union[str, np.ndarray, torch.Tensor],
+    audio: Union[str, np.ndarray, ms.tensor],
     *,
     verbose: Optional[bool] = None,
     temperature: Union[float, Tuple[float, ...]] = (0.0, 0.2, 0.4, 0.6, 0.8, 1.0),
@@ -119,15 +119,15 @@ def transcribe(
     the spoken language ("language"), which is detected when `decode_options["language"]` is None.
     """
     dtype = torch.float16 if decode_options.get("fp16", True) else torch.float32
-    if model.device == torch.device("cpu"):
-        if torch.cuda.is_available():
-            warnings.warn("Performing inference on CPU when CUDA is available")
-        if dtype == torch.float16:
-            warnings.warn("FP16 is not supported on CPU; using FP32 instead")
-            dtype = torch.float32
+    # if model.device == torch.device("cpu"):
+    #     if torch.cuda.is_available():
+    #         warnings.warn("Performing inference on CPU when CUDA is available")
+    #     if dtype == torch.float16:
+    #         warnings.warn("FP16 is not supported on CPU; using FP32 instead")
+    #         dtype = torch.float32
 
-    if dtype == torch.float32:
-        decode_options["fp16"] = False
+    # if dtype == torch.float32:
+    #     decode_options["fp16"] = False
 
     # Pad 30-seconds of silence to the input audio, for slicing
     mel = log_mel_spectrogram(audio, model.dims.n_mels, padding=N_SAMPLES)

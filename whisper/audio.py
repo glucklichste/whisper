@@ -4,9 +4,10 @@ from subprocess import CalledProcessError, run
 from typing import Optional, Union
 
 import numpy as np
-import torch
-import torch.nn.functional as F
-
+# import torch
+# import torch.nn.functional as F
+import mindspore as ms
+from mindspore import Tensor, ops, nn
 from .utils import exact_div
 
 # hard-coded audio hyperparameters
@@ -108,7 +109,7 @@ def mel_filters(device, n_mels: int) -> torch.Tensor:
 
 
 def log_mel_spectrogram(
-    audio: Union[str, np.ndarray, torch.Tensor],
+    audio: Union[str, np.ndarray, ms.Tensor],
     n_mels: int = 80,
     padding: int = 0,
     device: Optional[Union[str, torch.device]] = None,
@@ -135,23 +136,23 @@ def log_mel_spectrogram(
     torch.Tensor, shape = (80, n_frames)
         A Tensor that contains the Mel spectrogram
     """
-    if not torch.is_tensor(audio):
+    if not isinstance(audio, ms.Tensor):
         if isinstance(audio, str):
             audio = load_audio(audio)
-        audio = torch.from_numpy(audio)
+        audio = ms.Tensor(audio)
 
-    if device is not None:
-        audio = audio.to(device)
+    # if device is not None:
+    #     audio = audio.to(device)
     if padding > 0:
-        audio = F.pad(audio, (0, padding))
-    window = torch.hann_window(N_FFT).to(audio.device)
-    stft = torch.stft(audio, N_FFT, HOP_LENGTH, window=window, return_complex=True)
+        audio = ops.pad(audio, (0, padding))
+    window = ops.hann_window(N_FFT)
+    stft = ops.stft(audio, N_FFT, HOP_LENGTH, window=window, return_complex=True)
     magnitudes = stft[..., :-1].abs() ** 2
 
     filters = mel_filters(audio.device, n_mels)
     mel_spec = filters @ magnitudes
 
-    log_spec = torch.clamp(mel_spec, min=1e-10).log10()
-    log_spec = torch.maximum(log_spec, log_spec.max() - 8.0)
+    log_spec = ops.clamp(mel_spec, min=1e-10).log10()
+    log_spec = ops.maximum(log_spec, log_spec.max() - 8.0)
     log_spec = (log_spec + 4.0) / 4.0
     return log_spec

@@ -1,7 +1,8 @@
 from functools import lru_cache
 
 import numpy as np
-import torch
+from mindspore import ops
+import mindspore as ms
 
 try:
     import triton
