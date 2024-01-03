@@ -2,10 +2,9 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
-import torch
-import torch.nn.functional as F
-from torch import Tensor
-from torch.distributions import Categorical
+import mindspore as ms
+from mindspore import Tensor, ops
+# from torch.distributions import Categorical
 
 from .audio import CHUNK_LENGTH
 from .tokenizer import Tokenizer, get_tokenizer
@@ -15,7 +14,7 @@ if TYPE_CHECKING:
     from .model import Whisper
 
 
-@torch.no_grad()
+# @torch.no_grad()
 def detect_language(
     model: "Whisper", mel: Tensor, tokenizer: Tokenizer = None
 ) -> Tuple[Tensor, List[dict]]:
@@ -53,15 +52,15 @@ def detect_language(
 
     # forward pass using a single token, startoftranscript
     n_audio = mel.shape[0]
-    x = torch.tensor([[tokenizer.sot]] * n_audio).to(mel.device)  # [n_audio, 1]
+    x = ms.tensor([[tokenizer.sot]] * n_audio)  # [n_audio, 1]
     logits = model.logits(x, mel)[:, 0]
 
     # collect detected languages; suppress all non-language tokens
-    mask = torch.ones(logits.shape[-1], dtype=torch.bool)
+    mask = ops.ones(logits.shape[-1], dtype=ms.bool)
     mask[list(tokenizer.all_language_tokens)] = False
     logits[:, mask] = -np.inf
     language_tokens = logits.argmax(dim=-1)
-    language_token_probs = logits.softmax(dim=-1).cpu()
+    language_token_probs = logits.softmax(dim=-1)
     language_probs = [
         {
             c: language_token_probs[i, j].item()
@@ -789,7 +788,7 @@ class DecodingTask:
         ]
 
 
-@torch.no_grad()
+# @torch.no_grad()
 def decode(
     model: "Whisper",
     mel: Tensor,

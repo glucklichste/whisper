@@ -123,22 +123,20 @@ def load_model(
         The Whisper ASR model instance
     """
 
-    if device is None:
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-    if download_root is None:
-        default = os.path.join(os.path.expanduser("~"), ".cache")
-        download_root = os.path.join(os.getenv("XDG_CACHE_HOME", default), "whisper")
+    # if download_root is None:
+    #     default = os.path.join(os.path.expanduser("~"), ".cache")
+    #     download_root = os.path.join(os.getenv("XDG_CACHE_HOME", default), "whisper")
 
-    if name in _MODELS:
-        checkpoint_file = _download(_MODELS[name], download_root, in_memory)
-        alignment_heads = _ALIGNMENT_HEADS[name]
-    elif os.path.isfile(name):
-        checkpoint_file = open(name, "rb").read() if in_memory else name
-        alignment_heads = None
-    else:
-        raise RuntimeError(
-            f"Model {name} not found; available models = {available_models()}"
-        )
+    # if name in _MODELS:
+    #     checkpoint_file = _download(_MODELS[name], download_root, in_memory)
+    #     alignment_heads = _ALIGNMENT_HEADS[name]
+    # elif os.path.isfile(name):
+    checkpoint_file = open(name, "rb").read() if in_memory else name
+    alignment_heads = None
+    # else:
+    #     raise RuntimeError(
+    #         f"Model {name} not found; available models = {available_models()}"
+    #     )
 
     with (
         io.BytesIO(checkpoint_file) if in_memory else open(checkpoint_file, "rb")

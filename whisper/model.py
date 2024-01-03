@@ -5,8 +5,8 @@ from typing import Dict, Iterable, Optional
 
 import numpy as np
 import mindspore as ms
-import torch.nn.functional as F
-from mindspore import Tensor, nn
+from mindspore import Parameter, Tensor
+from mindspore import nn, ops
 
 from .decoding import decode as decode_function
 from .decoding import detect_language as detect_language_function
@@ -53,10 +53,10 @@ class Conv1d(nn.Conv1d):
 def sinusoids(length, channels, max_timescale=10000):
     """Returns sinusoids for positional embedding"""
     assert channels % 2 == 0
-    log_timescale_increment = np.log(max_timescale) / (channels // 2 - 1)
-    inv_timescales = torch.exp(-log_timescale_increment * torch.arange(channels // 2))
-    scaled_time = torch.arange(length)[:, np.newaxis] * inv_timescales[np.newaxis, :]
-    return torch.cat([torch.sin(scaled_time), torch.cos(scaled_time)], dim=1)
+    log_timescale_increment = float(np.log(max_timescale) / (channels // 2 - 1))
+    inv_timescales = ops.exp(-log_timescale_increment * ops.arange(channels // 2))
+    scaled_time = ops.arange(length)[:, np.newaxis] * inv_timescales[np.newaxis, :]
+    return ops.concat([ops.sin(scaled_time), ops.cos(scaled_time)], axis=1)
 
 
 class MultiHeadAttention(nn.Cell):
@@ -104,7 +104,7 @@ class MultiHeadAttention(nn.Cell):
             qk = qk + mask[:n_ctx, :n_ctx]
         qk = qk.float()
 
-        w = F.softmax(qk, dim=-1).to(q.dtype)
+        w = ops.softmax(qk, axis=-1).to(q.dtype)
         return (w @ v).permute(0, 2, 1, 3).flatten(start_dim=2), qk.detach()
 
 
@@ -121,7 +121,7 @@ class ResidualAttentionBlock(nn.Cell):
         self.cross_attn_ln = nn.LayerNorm([n_state,]) if cross_attention else None
 
         n_mlp = n_state * 4
-        self.mlp = nn.Sequential(
+        self.mlp = nn.SequentialCell(
             nn.Dense(n_state, n_mlp), nn.GELU(), nn.Dense(n_mlp, n_state)
         )
         self.mlp_ln = nn.LayerNorm([n_state,])
@@ -145,11 +145,11 @@ class AudioEncoder(nn.Cell):
         self, n_mels: int, n_ctx: int, n_state: int, n_head: int, n_layer: int
     ):
         super().__init__()
-        self.conv1 = Conv1d(n_mels, n_state, kernel_size=3, padding=1)
-        self.conv2 = Conv1d(n_state, n_state, kernel_size=3, stride=2, padding=1)
-        self.register_buffer("positional_embedding", sinusoids(n_ctx, n_state))
-
-        self.blocks: Iterable[ResidualAttentionBlock] = nn.CellList(
+        self.conv1 = nn.Conv1d(n_mels, n_state, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv1d(n_state, n_state, kernel_size=3, stride=2, padding=1)
+        # self.register_buffer("positional_embedding", sinusoids(n_ctx, n_state))
+        self.positional_embedding = Parameter(sinusoids(n_ctx, n_state), requires_grad=False)
+        self.blocks = nn.CellList(
             [ResidualAttentionBlock(n_state, n_head) for _ in range(n_layer)]
         )
         self.ln_post = nn.LayerNorm([n_state,])
@@ -159,8 +159,8 @@ class AudioEncoder(nn.Cell):
         x : torch.Tensor, shape = (batch_size, n_mels, n_ctx)
             the mel spectrogram of the audio
         """
-        x = F.gelu(self.conv1(x))
-        x = F.gelu(self.conv2(x))
+        x = ops.gelu(self.conv1(x))
+        x = ops.gelu(self.conv2(x))
         x = x.permute(0, 2, 1)
 
         # assert x.shape[1:] == self.positional_embedding.shape, "incorrect audio shape"
@@ -180,9 +180,9 @@ class TextDecoder(nn.Cell):
         super().__init__()
 
         self.token_embedding = nn.Embedding(n_vocab, n_state)
-        self.positional_embedding = nn.Parameter(ops.empty(n_ctx, n_state))
+        self.positional_embedding = Parameter(ops.empty(n_ctx, n_state))
 
-        self.blocks: Iterable[ResidualAttentionBlock] = nn.CellList(
+        self.blocks = nn.CellList(
             [
                 ResidualAttentionBlock(n_state, n_head, cross_attention=True)
                 for _ in range(n_layer)
@@ -190,8 +190,8 @@ class TextDecoder(nn.Cell):
         )
         self.ln = LayerNorm([n_state,])
 
-        mask = ops.empty(n_ctx, n_ctx).fill_(-np.inf).triu_(1)
-        self.register_buffer("mask", mask, persistent=False)
+        mask = Parameter(ops.empty(n_ctx, n_ctx).fill_(-np.inf).triu_(1), requires_grad=False)
+        # self.register_buffer("mask", mask, persistent=False)
 
     def construct(self, x: Tensor, xa: Tensor, kv_cache: Optional[dict] = None):
         """
@@ -212,7 +212,7 @@ class TextDecoder(nn.Cell):
 
         x = self.ln(x)
         logits = (
-            x @ torch.transpose(self.token_embedding.weight.to(x.dtype), 0, 1)
+            x @ ops.transpose(self.token_embedding.weight.to(x.dtype), 0, 1)
         ).float()
 
         return logits
@@ -239,7 +239,7 @@ class Whisper(nn.Module):
         # use the last half among the decoder layers for time alignment by default;
         # to use a specific set of heads, see `set_alignment_heads()` below.
         all_heads = ops.zeros(
-            self.dims.n_text_layer, self.dims.n_text_head, dtype=ms.bool
+            (self.dims.n_text_layer, self.dims.n_text_head), dtype=ms.bool
         )
         all_heads[self.dims.n_text_layer // 2 :] = True
         self.register_buffer("alignment_heads", all_heads.to_sparse(), persistent=False)
